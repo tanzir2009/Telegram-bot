@@ -16,25 +16,30 @@ CHAT_ID = "6730772884"
 GEMINI_API_KEY = "AIzaSyCJlJ3X2ynVaFuq8l45lxI72EDA7NtX4j8"
 SSC_EXAM_DATE = "2026-04-21"
 
-# Gemini AI Setup (With Safety Settings Fix)
-genai.configure(api_key=GEMINI_API_KEY)
-# সেফটি সেটিংস অফ করা হয়েছে যাতে সব প্রশ্নের উত্তর দেয়
-gemini_model = genai.GenerativeModel(
-    model_name='gemini-1.5-flash',
-    safety_settings={
+# Gemini AI Setup
+try:
+    genai.configure(api_key=GEMINI_API_KEY)
+    # সেফটি সেটিংস পুরোপুরি শিথিল করা হয়েছে যাতে এরর না আসে
+    safety_settings = {
         HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
         HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
     }
-)
+    gemini_model = genai.GenerativeModel(
+        model_name='gemini-1.5-flash',
+        safety_settings=safety_settings
+    )
+    print("Gemini Model Initialized Successfully")
+except Exception as e:
+    print(f"Gemini Init Error: {e}")
 
 # Flask App for Render/Cron-job
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "SSC Bot is Active and AI is working!"
+    return "SSC Bot is Online! Waiting for cron-job..."
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -62,7 +67,7 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
     tip = random.choice(SUBJECT_TIPS[subject])
     
     message = (
-        f"🔔 **এসএসসি ২০২৬ আপডেট** 🔔\n\n"
+        f"🔔 **এসএসসি ২০২৬ রিমাইন্ডার** 🔔\n\n"
         f"📖 পরীক্ষা শুরু হতে বাকি: `{days_left}` দিন মাত্র!\n"
         f"💡 আজকের বিশেষ টিপস: {tip}\n\n"
         f"সময়কে কাজে লাগাও! 💪"
@@ -73,48 +78,53 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
         print(f"Reminder Error: {e}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("হ্যালো! আমি তোমার SSC স্টাডি পার্টনার। প্রশ্ন করো, আমি উত্তর দিচ্ছি!")
+    await update.message.reply_text("হ্যালো! আমি তোমার SSC স্টাডি পার্টনার। আমাকে পড়াশোনা নিয়ে যেকোনো প্রশ্ন করতে পারো।")
 
 async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     await update.message.reply_chat_action("typing")
     
     try:
-        # Gemini-র Async মেথড ব্যবহার করা হয়েছে
+        # Prompt তৈরি
         prompt = f"তুমি একজন এসএসসি পরীক্ষার্থীর মেন্টর। ছাত্রের প্রশ্ন: {user_text}। সংক্ষেপে বাংলায় উত্তর দাও।"
-        response = await gemini_model.generate_content_async(prompt)
         
-        if response.text:
+        # Synchronous call-কে Thread-এ চালানো হচ্ছে যাতে বট হ্যাং না হয়
+        response = await asyncio.to_thread(gemini_model.generate_content, prompt)
+        
+        if response and response.text:
             await update.message.reply_text(response.text)
         else:
-            await update.message.reply_text("দুঃখিত, আমি উত্তরটি তৈরি করতে পারছি না।")
+            await update.message.reply_text("দুঃখিত, Gemini কোনো উত্তর দিতে পারেনি (হয়তো সেফটি ফিল্টারে ব্লক হয়েছে)।")
             
     except Exception as e:
-        print(f"Gemini Error: {e}")
-        await update.message.reply_text(f"AI এরর: {str(e)[:50]}... দয়া করে আবার চেষ্টা করো।")
+        # আসল এরর মেসেজটি টেলিগ্রামে দেখাবে যাতে আমরা বুঝতে পারি সমস্যা কোথায়
+        error_msg = str(e)
+        print(f"Full Error: {error_msg}")
+        await update.message.reply_text(f"⚠️ দুঃখিত, একটি সমস্যা হয়েছে।\nError: `{error_msg[:100]}`", parse_mode='Markdown')
 
 # ================= MAIN EXECUTION =================
 
 def main():
-    # Flask চালু করা
+    # ১. Flask চালু করা
     threading.Thread(target=run_flask, daemon=True).start()
 
-    # টেলিগ্রাম বট তৈরি
+    # ২. টেলিগ্রাম বট তৈরি (JobQueue সহ)
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # রিমাইন্ডার সিডিউল
+    # ৩. রিমাইন্ডার সিডিউল (BD Time)
     job_queue = application.job_queue
     tz = pytz.timezone('Asia/Dhaka')
 
-    # সকাল ৭টা ও সন্ধ্যা ৬টা
+    # প্রতিদিন সকাল ৭টা ও সন্ধ্যা ৬টা
     job_queue.run_daily(send_reminder, time=datetime.time(hour=7, minute=0, tzinfo=tz))
     job_queue.run_daily(send_reminder, time=datetime.time(hour=18, minute=0, tzinfo=tz))
 
-    # হ্যান্ডলার
+    # ৪. হ্যান্ডলার যুক্ত করা
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_handler))
 
-    print("Bot is starting with Gemini Async Fix...")
+    # ৫. বট স্টার্ট
+    print("Bot is starting with Synchronous AI support...")
     application.run_polling()
 
 if __name__ == "__main__":
