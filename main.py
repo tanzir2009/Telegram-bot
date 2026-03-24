@@ -27,7 +27,7 @@ try:
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
     }
     gemini_model = genai.GenerativeModel(
-        model_name='gemini-1.5-flash',
+        model_name='gemini-2.5-flash-lite',
         safety_settings=safety_settings
     )
     print("Gemini Model Initialized Successfully")
