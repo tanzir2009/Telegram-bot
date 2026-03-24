@@ -16,7 +16,7 @@ CHAT_ID = "6730772884"
 SSC_EXAM_DATE = "2026-04-21"
 
 # আপনার দেওয়া Hugging Face Token
-HF_TOKEN = "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"
+HF_TOKEN = "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"
 
 # DeepSeek AI Setup (Using Hugging Face Router & AsyncOpenAI)
 hf_client = AsyncOpenAI(
