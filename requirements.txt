@@ -1,6 +1,4 @@
-python-telegram-bot
+python-telegram-bot[job-queue]
 google-generativeai
-apscheduler
 flask
 pytz
-requests
